@@ -76,23 +76,47 @@ async function photon(text, near) {
     const p = f.properties || {}, [lon, lat] = f.geometry.coordinates;
     const street = [p.housenumber, p.street].filter(Boolean).join(" ");
     const label = [p.name, street && street !== p.name ? street : null, p.city || p.district || p.county].filter(Boolean).join(", ");
-    return { lat, lon, label: label || text };
+    return { lat, lon, label: label || text, house: p.housenumber || "" };
   });
 }
+let lastNominatim = 0;
 async function nominatim(text) {
+  const wait = lastNominatim + 1100 - Date.now(); if (wait > 0) await new Promise(r => setTimeout(r, wait)); // their limit: 1 request per second
+  lastNominatim = Date.now();
   const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=us&viewbox=" + ATL_VIEWBOX + "&bounded=1&q=" + encodeURIComponent(text);
   const r = await fetch(u, { headers: { "Accept-Language": "en" } }); if (!r.ok) return [];
   return (await r.json()).map(x => ({ lat: +x.lat, lon: +x.lon, label: x.display_name.split(",").slice(0, 3).join(",").trim() }));
 }
-// Returns matches in metro Atlanta only, nearest to `near` first.
-async function geocode(text, near) {
-  const bias = near && kmFrom(near, ATL) <= METRO_KM ? near : ATL;
+// Strip things geocoders choke on: apartment/space/suite numbers, ", USA", extra spaces.
+function cleanAddress(t) {
+  return t.replace(/,?\s*(USA|United States)\s*$/i, "")
+    .replace(/\s*(,\s*)?\b(apt|apartment|unit|ste|suite|spc|space|lot|bldg|building|rm|room|fl|floor|trlr|trailer)\b\.?\s*#?\s*[\w-]+/gi, "")
+    .replace(/\s*#\s*[\w-]+/g, "")
+    .replace(/\s+,/g, ",").replace(/\s{2,}/g, " ").trim();
+}
+async function lookup(text, bias) {
+  const isAddr = /^\d+[a-z]?\s/i.test(text), num = isAddr ? text.match(/^(\d+)/)[1] : "";
   const [a, b] = await Promise.all([photon(text, bias).catch(() => []), nominatim(text).catch(() => [])]);
-  const all = [...a, ...b].filter(m => isFinite(m.lat) && kmFrom(m, ATL) <= METRO_KM);
+  let all = (isAddr ? [...b, ...a] : [...a, ...b]).filter(m => isFinite(m.lat) && kmFrom(m, ATL) <= METRO_KM);
+  if (isAddr) all.sort((x, y) => (y.house === num || /^\d/.test(y.label) && y.label.startsWith(num)) - (x.house === num || /^\d/.test(x.label) && x.label.startsWith(num)));
   const out = [];
   for (const m of all) if (!out.some(o => kmFrom(o, m) < 0.15)) out.push(m);
-  // keep the search engines' best match first unless something with the same name is much closer to you
-  return out.map((m, i) => ({ ...m, rank: i + kmFrom(m, bias) / 3 })).sort((x, y) => x.rank - y.rank).slice(0, 5);
+  return isAddr ? out : out.map((m, i) => ({ ...m, rank: i + kmFrom(m, bias) / 3 })).sort((x, y) => x.rank - y.rank);
+}
+// Returns matches in metro Atlanta only. Tries the full text, then simpler versions of an address.
+async function geocode(text, near) {
+  const bias = near && kmFrom(near, ATL) <= METRO_KM ? near : ATL;
+  const clean = cleanAddress(text);
+  const noZip = clean.replace(/,?\s*(GA|Georgia)?\s*\d{5}(-\d{4})?\s*$/i, "").replace(/,\s*(GA|Georgia)\s*$/i, "");
+  const streetOnly = noZip.split(",")[0];
+  const tries = [...new Set([text, clean, noZip, streetOnly + ", Georgia"])].filter(Boolean);
+  for (const q of tries) { const r = await lookup(q, bias); if (r.length) return r.slice(0, 5); }
+  // last resort: the street without the house number (approximate)
+  if (/^\d+[a-z]?\s/i.test(streetOnly)) {
+    const r = await lookup(streetOnly.replace(/^\d+[a-z]?\s+/i, "") + ", Georgia", bias);
+    if (r.length) return r.slice(0, 5).map(m => ({ ...m, label: m.label + " (street only, exact address not found)" }));
+  }
+  return [];
 }
 
 function getGPS() {
@@ -112,6 +136,7 @@ async function plan(override) {
   if (!destText && !override) return setStatus("Enter where you're going.", true);
   const departMs = $("when").value === "at" && $("at").value ? new Date($("at").value).getTime() : Date.now();
   busy = true; $("go").disabled = true; $("plansH").hidden = true; $("plans").innerHTML = "";
+  if (!override) { $("resolved").hidden = true; $("resolved").innerHTML = ""; }
   try {
     setStatus("Loading timetable…", false, true); await ready;
     let O, D, dAlts = [];
