@@ -106,7 +106,7 @@ const int32 = v => Number(BigInt.asIntN(32, v));
 async function railArrivals(env) {
   if (!env.MARTA_API_KEY) throw new Error("MARTA_API_KEY secret is not set");
   const r = await fetch(`${env.RAIL_API_URL || RAIL_API}?apiKey=${encodeURIComponent(env.MARTA_API_KEY)}`, { headers: { Accept: "application/json" } });
-  if (!r.ok) throw new Error("MARTA rail API returned " + r.status);
+  if (!r.ok) { const t = (await r.text().catch(() => "")).replaceAll(env.MARTA_API_KEY, "***").slice(0, 300); throw new Error("MARTA rail API returned " + r.status + (t ? ": " + t : "")); }
   const raw = await r.json();
   const list = Array.isArray(raw) ? raw : (raw.RailArrivals || raw.data || raw.arrivals || Object.values(raw).find(Array.isArray) || []);
   const pick = (o, ...names) => { for (const n of names) for (const k of Object.keys(o)) if (k.toLowerCase() === n) return o[k]; return undefined; };
