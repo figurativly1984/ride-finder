@@ -32,3 +32,5 @@ const near = net.nearStops(it[0], it[1], 3000).slice(0, 8).map(([s, w, d]) => `$
 console.log("Stops near Indian Trail P&R point: " + near.join("; "));
 const x415 = day.patterns.filter(p => /415/.test(net.routes[p.r][1]));
 console.log("Route 415 patterns on " + ymd + ": " + x415.map(p => `${p.trips.length} trips: ${net.stops[p.s[0]][1]} -> ${net.stops[p.s[p.s.length - 1]][1]} (first ${Math.floor(p.trips[0].times[0] / 60)}:${String(p.trips[0].times[0] % 60).padStart(2, "0")})`).join(" | "));
+console.log("Stops named Indian Trail: " + net.stops.filter(s => /indian trail/i.test(s[1])).map(s => `${s[1]} [${(meta.agencies[s[4]] || {}).name}] ${s[2]},${s[3]}`).join("; "));
+console.log("Route 415 stops: " + x415.map(p => p.s.map(i => net.stops[i][1]).join(" > ")).join(" || "));
