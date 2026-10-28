@@ -40,7 +40,7 @@ jobs:
           node test/sample-trips.mjs site/data | tee trips.log
           while IFS= read -r line; do echo "::notice title=Sample trip::$line"; done < trips.log
       - name: Regional diagnostics
-        run: grep -E "^(Stops n|Route 415|Xpress|Ride Gwinnett|CobbLinc)" trips.log | while IFS= read -r line; do echo "::notice title=Regional::$line"; done
+        run: grep -E "^(Indian Trail P|Emory Hospital -> Indian|Woodruff Library -> Indian)" trips.log | while IFS= read -r line; do echo "::notice title=Regional::$line"; done
       - name: Make phones load the newest code
         run: |
           V=${GITHUB_SHA::8}

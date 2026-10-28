@@ -11,8 +11,8 @@ const next = s => { const d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) -
 ymd = next(ymd); while ([0, 6].includes(dow(ymd))) ymd = next(ymd);
 const day = await net.loadDay(ymd, async f => J(f));
 const fmt = m => { m = Math.round(m); return `${Math.floor(m / 60) % 24}:${String(m % 60).padStart(2, "0")}`; };
-const P = { "Clairmont Campus": [33.7985, -84.3125], "Woodruff Library": [33.7906, -84.3244], "Emory Hospital": [33.7925, -84.3206], "Ponce City Market": [33.7726, -84.3655], "Decatur Square": [33.7748, -84.2963], "Airport": [33.6407, -84.4462], "Lindbergh Center": [33.8236, -84.3696], "Georgia Tech": [33.7756, -84.3963], "Indian Trail P&R": [33.8837, -84.1742] };
-const trips = [["Clairmont Campus", "Ponce City Market", 8 * 60], ["Woodruff Library", "Airport", 15 * 60 + 30], ["Ponce City Market", "Clairmont Campus", 18 * 60], ["Decatur Square", "Emory Hospital", 7 * 60 + 30], ["Georgia Tech", "Woodruff Library", 12 * 60], ["Lindbergh Center", "Clairmont Campus", 22 * 60 + 30], ["Indian Trail P&R", "Emory Hospital", 6 * 60 + 30], ["Emory Hospital", "Indian Trail P&R", 17 * 60 + 15], ["Woodruff Library", "Indian Trail P&R", 18 * 60]];
+const P = { "Clairmont Campus": [33.7985, -84.3125], "Woodruff Library": [33.7906, -84.3244], "Emory Hospital": [33.7925, -84.3206], "Ponce City Market": [33.7726, -84.3655], "Decatur Square": [33.7748, -84.2963], "Airport": [33.6407, -84.4462], "Lindbergh Center": [33.8236, -84.3696], "Georgia Tech": [33.7756, -84.3963], "Indian Trail P&R": [33.9298, -84.1753] };
+const trips = [["Clairmont Campus", "Ponce City Market", 8 * 60], ["Woodruff Library", "Airport", 15 * 60 + 30], ["Ponce City Market", "Clairmont Campus", 18 * 60], ["Decatur Square", "Emory Hospital", 7 * 60 + 30], ["Georgia Tech", "Woodruff Library", 12 * 60], ["Lindbergh Center", "Clairmont Campus", 22 * 60 + 30], ["Indian Trail P&R", "Emory Hospital", 6 * 60 + 30], ["Emory Hospital", "Indian Trail P&R", 16 * 60 + 15], ["Woodruff Library", "Indian Trail P&R", 18 * 60]];
 const out = [];
 for (const [a, b, t0] of trips) {
   const o = { lat: P[a][0], lon: P[a][1] }, d = { lat: P[b][0], lon: P[b][1] };
