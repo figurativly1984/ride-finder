@@ -21,10 +21,13 @@ const fmtMs = ms => new Date(ms).toLocaleTimeString("en-US", { timeZone: TZ, hou
 
 // ---------- data ----------
 const DATA = "data/";
-const fetchJson = async f => { const r = await fetch(DATA + f, { cache: "force-cache" }); if (!r.ok) throw new Error("Timetable file missing: " + f); return r.json(); };
+let dataVersion = "";
+const fetchJson = async f => { const r = await fetch(DATA + f + (dataVersion ? "?v=" + dataVersion : ""), { cache: f === "meta.json" ? "no-store" : "default" }); if (!r.ok) throw new Error("Timetable file missing: " + f); return r.json(); };
+const agencyName = a => (meta && meta.agencies && meta.agencies[a] ? meta.agencies[a].name : a === 1 ? "Emory shuttle" : "MARTA");
 let net = null, meta = null, config = {};
 const ready = (async () => {
-  const [stops, routes, transfers, services, m, cfg] = await Promise.all([fetchJson("stops.json"), fetchJson("routes.json"), fetchJson("transfers.json"), fetchJson("services.json"), fetchJson("meta.json"), fetch("config.json", { cache: "no-store" }).then(r => (r.ok ? r.json() : {})).catch(() => ({}))]);
+  const m = await fetchJson("meta.json"); dataVersion = m.built.replace(/\D/g, "");
+  const [stops, routes, transfers, services, cfg] = await Promise.all([fetchJson("stops.json"), fetchJson("routes.json"), fetchJson("transfers.json"), fetchJson("services.json"), fetch("config.json", { cache: "no-store" }).then(r => (r.ok ? r.json() : {})).catch(() => ({}))]);
   net = new Network({ stops, routes, transfers, services }); meta = m; config = cfg || {};
   $("dataAge").textContent = "Timetable " + new Date(m.built).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   $("emorySrc").textContent = m.emorySource === "gtfs" ? "Emory shuttle times come from Emory's published shuttle schedule feed." : "Emory shuttle times come from Emory's posted timetables (check TripShot for live positions).";
@@ -127,7 +130,7 @@ async function plan(override) {
     const opts = { origin: O, dest: D, t0, delays };
     const runs = [
       ...raptor(net, day, opts).map(j => ({ ...j, tag: "any" })),
-      ...raptor(net, day, { ...opts, allow: a => a === 0 }).slice(-1).map(j => ({ ...j, tag: "marta" })),
+      ...raptor(net, day, { ...opts, allow: a => a !== 1 }).slice(-1).map(j => ({ ...j, tag: "marta" })),
       ...raptor(net, day, { ...opts, allow: a => a === 1 }).slice(-1).map(j => ({ ...j, tag: "emory" }))
     ];
     const walkOnly = walkMinutes(hav(O.lat, O.lon, D.lat, D.lon));
@@ -167,15 +170,16 @@ function render(runs, ctx) {
     $("plansH").hidden = false;
   $("plans").innerHTML = list.map((j, i) => {
     const agencies = new Set(j.legs.filter(l => l.type === "ride").map(l => l.pattern.agency));
-    const title = !agencies.size ? "Walk" : agencies.size === 2 ? "Shuttle + MARTA" : agencies.has(1) ? "Emory shuttle" : "MARTA";
-    const kicker = i === 0 ? "Fastest" : j.tags.has("emory") && !j.tags.has("any") ? "Emory shuttles only" : j.tags.has("marta") && !j.tags.has("any") ? "MARTA only" : j.rides && j.rides < list[0].rides ? "Fewer transfers" : j.tags.has("walk") ? "Walk" : "Another option";
-    const paid = agencies.has(0), liveUsed = j.legs.some(l => l.type === "ride" && delays.has(l.trip.id));
+    const names = [...agencies].sort((a, b) => (a === 1 ? -1 : b === 1 ? 1 : a - b)).map(a => (a === 1 ? "Shuttle" : agencyName(a)));
+    const title = !agencies.size ? "Walk" : agencies.size === 1 && agencies.has(1) ? "Emory shuttle" : names.join(" + ");
+    const kicker = i === 0 ? "Fastest" : j.tags.has("emory") && !j.tags.has("any") ? "Emory shuttles only" : j.tags.has("marta") && !j.tags.has("any") ? "Without Emory shuttles" : j.rides && j.rides < list[0].rides ? "Fewer transfers" : j.tags.has("walk") ? "Walk" : "Another option";
+    const paidList = [...agencies].filter(a => a !== 1), liveUsed = j.legs.some(l => l.type === "ride" && delays.has(l.trip.id));
     const walk = j.legs.filter(l => l.type === "walk").reduce((s, l) => s + l.mins, 0);
     const lb = j.rides ? leaveBy(j, delays) : t0;
     return `<article class="plan${i === 0 ? " best" : ""}">
       <div class="plan-top"><div><div class="kicker">${kicker}</div><h3>${title}</h3></div>
       <div class="eta"><b>${Math.max(1, Math.round(j.arrive - t0))} min</b><span>arrive ${fmtMs(toMs(j.arrive))}</span></div></div>
-      <div class="meta">${paid ? '<span class="tag">$2.50 MARTA fare</span>' : '<span class="tag free">Free</span>'}<span class="tag">Leave by ${fmtMs(toMs(Math.max(t0, lb)))}</span>${j.rides > 1 ? `<span class="tag">${j.rides - 1} transfer${j.rides > 2 ? "s" : ""}</span>` : ""}${walk ? `<span class="tag">${walk} min walking</span>` : ""}${liveUsed ? '<span class="tag live">Live bus times</span>' : ""}</div>
+      <div class="meta">${paidList.length ? paidList.map(a => `<span class="tag">${a === 0 ? "$2.50 MARTA fare" : esc(agencyName(a)) + " fare"}</span>`).join("") : '<span class="tag free">Free</span>'}<span class="tag">Leave by ${fmtMs(toMs(Math.max(t0, lb)))}</span>${j.rides > 1 ? `<span class="tag">${j.rides - 1} transfer${j.rides > 2 ? "s" : ""}</span>` : ""}${walk ? `<span class="tag">${walk} min walking</span>` : ""}${liveUsed ? '<span class="tag live">Live bus times</span>' : ""}</div>
       <ol class="legs">${j.legs.map((l, k) => legHTML(l, k, j, ctx, toMs)).join("")}<li class="end" style="--c:var(--gold)"><div class="leg-t">Arrive at ${esc(ctx.D.label)}</div><div class="leg-s mono">${fmtMs(toMs(j.arrive))}</div></li></ol>
     </article>`;
   }).join("");
@@ -191,15 +195,15 @@ function legHTML(l, k, j, ctx, toMs) {
     const link = orig ? `<div class="links"><a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${orig}&destination=${dest}&travelmode=walking">Walking map</a></div>` : "";
     return `<li class="walk"><div class="leg-t">Walk ${l.mins} min${toName ? " to " + esc(toName) : ""}</div>${k === 0 || l.from != null ? link : ""}</li>`;
   }
-  const r = net.routes[l.pattern.r], agency = r[0], rail = agency === 0 && (r[3] === 1 || r[3] === 2);
+  const r = net.routes[l.pattern.r], agency = r[0], rail = agency !== 1 && (r[3] === 1 || r[3] === 2);
   const color = r[4] ? "#" + r[4] : agency === 1 ? "var(--emory)" : rail ? "var(--rail)" : "var(--marta)";
   const text = r[5] ? "#" + r[5] : "var(--chip-ink)";
   const d = ctx.delays.get(l.trip.id) || 0;
   const dep = l.trip.times[l.fromPos] + d, arr = l.trip.times[l.toPos] + d;
-  const name = agency === 1 ? r[2] : (r[2] || (rail ? "MARTA rail" : "MARTA bus"));
+  const name = agency === 1 ? r[2] : (agency === 0 ? "" : agencyName(agency) + " ") + (r[2] || (rail ? "MARTA rail" : agency === 0 ? "MARTA bus" : "bus"));
   const head = l.pattern.h ? " toward " + esc(l.pattern.h) : "";
   let live = "";
-  if (agency === 0 && ctx.delays.has(l.trip.id)) live = `<div class="leg-live">Live: ${d === 0 ? "on time" : d > 0 ? d + " min late" : -d + " min early"}</div>`;
+  if (agency !== 1 && ctx.delays.has(l.trip.id)) live = `<div class="leg-live">Live: ${d === 0 ? "on time" : d > 0 ? d + " min late" : -d + " min early"}</div>`;
   if (rail) { const hits = railLive(ctx.railRT, S[l.from][1], r[1]); if (hits) live = `<div class="leg-live">Live at ${esc(S[l.from][1])}: ${hits.map(h => esc(h.dest ? h.dest.replace(/ STATION$/i, "") : "train") + " " + (h.waitSec != null ? (h.waitSec < 60 ? "arriving" : Math.round(h.waitSec / 60) + " min") : esc(h.wait || ""))).join(" · ")}</div>`; }
   const links = agency === 1 ? `<div class="links"><a class="btn small" target="_blank" rel="noopener" href="https://emory.tripshot.com/">Track on TripShot</a></div>` : "";
   const stopsN = l.toPos - l.fromPos;

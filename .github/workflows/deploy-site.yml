@@ -39,6 +39,11 @@ jobs:
         run: |
           node test/sample-trips.mjs site/data | tee trips.log
           while IFS= read -r line; do echo "::notice title=Sample trip::$line"; done < trips.log
+      - name: Make phones load the newest code
+        run: |
+          V=${GITHUB_SHA::8}
+          sed -i "s|src=\"app.js\"|src=\"app.js?v=$V\"|" site/index.html
+          sed -i "s|\"./router.js\"|\"./router.js?v=$V\"|" site/app.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

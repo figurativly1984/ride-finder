@@ -165,7 +165,27 @@ if (EMORY_SRC && EMORY_SRC !== "none") {
 }
 if (!emory) emory = readEmoryJSON();
 
-const enc = encode([marta, emory]);
+// Regional commuter services that connect to Emory and MARTA. Each is optional: if a feed is down or empty, the site is built without it.
+const EXTRA = [
+  { key: "xpress", name: "Xpress", prefix: "X:", url: process.env.XPRESS_GTFS_URL || "https://gamobility.info/wp-content/uploads/2025/09/google_transit.zip" },
+  { key: "gwinnett", name: "Ride Gwinnett", prefix: "G:", url: process.env.GWINNETT_GTFS_URL || "https://realtimegwinnett.availtec.com/InfoPoint/gtfs-zip.ashx" },
+  { key: "cobb", name: "CobbLinc", prefix: "C:", url: process.env.COBB_GTFS_URL || "https://cobb.rideralerts.com/InfoPoint/GTFS-Zip.ashx" },
+];
+const feeds = [marta, emory], agencies = [
+  { key: "marta", name: "MARTA", prefix: "" },
+  { key: "emory", name: "Emory shuttle", prefix: "", source: emory.source },
+];
+if (args.extra !== "none") for (const x of EXTRA) {
+  try {
+    const f = await readGTFS(await fetchZip(x.url, x.name), x.name);
+    if (!f.trips.length) { console.log(`${x.name}: no trips in the next ${WINDOW_DAYS} days; skipped.`); continue; }
+    f.trips.forEach(t => (t.id = x.prefix + t.id));
+    feeds.push(f); agencies.push({ key: x.key, name: x.name, prefix: x.prefix });
+  } catch (e) { console.log(`${x.name}: unavailable (${e.message}); skipped.`); }
+}
+
+const enc = encode(feeds);
+
 if (existsSync(OUT)) rmSync(OUT, { recursive: true });
 mkdirSync(OUT, { recursive: true });
 const write = (name, obj) => { const s = JSON.stringify(obj); writeFileSync(join(OUT, name), s); return s.length; };
@@ -175,5 +195,5 @@ total += write("routes.json", enc.routes);
 total += write("transfers.json", enc.transfers);
 total += write("services.json", enc.services.map((s, i) => ({ a: s.a, id: s.id, dates: s.dates, file: enc.svcFiles[i].file })));
 enc.svcFiles.forEach(f => (total += write(f.file, f.p)));
-write("meta.json", { built: new Date().toISOString(), today: TODAY, windowDays: WINDOW_DAYS, emorySource: emory.source, marta: MARTA_SRC });
+write("meta.json", { built: new Date().toISOString(), today: TODAY, windowDays: WINDOW_DAYS, emorySource: emory.source, agencies });
 console.log(`Wrote ${enc.stops.length} stops, ${enc.routes.length} routes, ${enc.services.length} services, ${(total / 1e6).toFixed(1)} MB to ${OUT}`);

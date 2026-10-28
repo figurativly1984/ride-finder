@@ -43,11 +43,28 @@ async function cached(req, ctx, cors, make) {
 }
 
 // ---------- MARTA bus: GTFS-realtime protobuf -> {generated, trips: {tripId: {d, s, q, t}}} ----------
+// Trip IDs from other agencies are prefixed the same way the timetable build prefixes them.
+const OTHER_FEEDS = [
+  { prefix: "X:", url: "https://myxpress2.xpressga.com/gtfsrt/trips" },
+  { prefix: "G:", url: "https://realtimegwinnett.availtec.com/InfoPoint/gtfs-realtime.ashx?type=tripupdate" },
+  { prefix: "C:", url: "https://cobb.rideralerts.com/InfoPoint/GTFS-Realtime.ashx?Type=TripUpdate" },
+];
 async function busUpdates(env) {
+  const now = Date.now() / 1000;
   const r = await fetch(env.BUS_TRIP_UPDATES_URL || BUS_TRIP_UPDATES, { cf: { cacheTtl: CACHE_SECONDS } });
   if (!r.ok) throw new Error("MARTA bus feed returned " + r.status);
-  const buf = new Uint8Array(await r.arrayBuffer());
-  return decodeTripUpdates(buf, Date.now() / 1000);
+  const out = decodeTripUpdates(new Uint8Array(await r.arrayBuffer()), now);
+  out.feeds = { marta: Object.keys(out.trips).length };
+  await Promise.all(OTHER_FEEDS.map(async f => {
+    try {
+      const res = await fetch(f.url, { cf: { cacheTtl: CACHE_SECONDS }, signal: AbortSignal.timeout(6000) });
+      if (!res.ok) { out.feeds[f.prefix] = "HTTP " + res.status; return; }
+      const d = decodeTripUpdates(new Uint8Array(await res.arrayBuffer()), now);
+      for (const [id, u] of Object.entries(d.trips)) out.trips[f.prefix + id] = u;
+      out.feeds[f.prefix] = Object.keys(d.trips).length;
+    } catch (e) { out.feeds[f.prefix] = String(e.message || e); }
+  }));
+  return out;
 }
 
 export function decodeTripUpdates(buf, nowSec) {
@@ -128,7 +145,7 @@ async function railArrivals(env) {
 
 async function health(env) {
   const out = {};
-  try { const b = await busUpdates(env); out.bus = { ok: true, trips: Object.keys(b.trips).length }; } catch (e) { out.bus = { ok: false, error: e.message }; }
+  try { const b = await busUpdates(env); out.bus = { ok: true, trips: Object.keys(b.trips).length, feeds: b.feeds }; } catch (e) { out.bus = { ok: false, error: e.message }; }
   try { const r = await railArrivals(env); out.rail = { ok: true, arrivals: r.arrivals.length }; } catch (e) { out.rail = { ok: false, error: e.message }; }
   return out;
 }
