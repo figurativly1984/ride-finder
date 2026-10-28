@@ -20,3 +20,15 @@ for (const [a, b, t0] of trips) {
   out.push(`${a} -> ${b} at ${fmt(t0)} on ${ymd} (${ms} ms): ` + (js.length ? js.map(j => `[${Math.round(j.arrive - t0)} min, arrive ${fmt(j.arrive)}] ` + j.legs.map(l => l.type === "walk" ? `walk ${l.mins}` : `${net.routes[l.pattern.r][1]}${net.routes[l.pattern.r][0] ? "(" + (meta.agencies[net.routes[l.pattern.r][0]] || {}).name + ")" : ""} ${net.stops[l.from][1]} ${fmt(l.trip.times[l.fromPos])} > ${net.stops[l.to][1]} ${fmt(l.trip.times[l.toPos])}`).join(" | ")).join("  ||  ") : "NO TRIP FOUND"));
 }
 for (const line of out) console.log(line);
+// Diagnostics for the regional services
+for (const [ai, a] of (meta.agencies || []).entries()) {
+  if (ai < 2) continue;
+  const rs = net.routes.filter(r => r[0] === ai).map(r => `${r[1]} ${r[2]}`.trim());
+  const pats = day.patterns.filter(p => p.agency === ai);
+  console.log(`${a.name}${a.staleSince ? " (schedule ended " + a.staleSince + ")" : ""}: ${rs.length} routes [${rs.slice(0, 25).join("; ")}], ${pats.reduce((n, p) => n + p.trips.length, 0)} trips on ${ymd}`);
+}
+const it = P["Indian Trail P&R"];
+const near = net.nearStops(it[0], it[1], 3000).slice(0, 8).map(([s, w, d]) => `${net.stops[s][1]} [${(meta.agencies[net.stops[s][4]] || {}).name}] ${Math.round(d)}m`);
+console.log("Stops near Indian Trail P&R point: " + near.join("; "));
+const x415 = day.patterns.filter(p => /415/.test(net.routes[p.r][1]));
+console.log("Route 415 patterns on " + ymd + ": " + x415.map(p => `${p.trips.length} trips: ${net.stops[p.s[0]][1]} -> ${net.stops[p.s[p.s.length - 1]][1]} (first ${Math.floor(p.trips[0].times[0] / 60)}:${String(p.trips[0].times[0] % 60).padStart(2, "0")})`).join(" | "));
