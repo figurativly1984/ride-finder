@@ -61,18 +61,35 @@ function railLive(rail, stationName, line) {
   return hits.length ? hits.sort((a, b) => (a.waitSec ?? 1e9) - (b.waitSec ?? 1e9)).slice(0, 4) : null;
 }
 
-// ---------- geocoding (OpenStreetMap Nominatim; one request per search) ----------
-async function geocode(text) {
-  const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=us&viewbox=" + ATL_VIEWBOX + "&bounded=1&q=" + encodeURIComponent(text);
-  const r = await fetch(u, { headers: { "Accept-Language": "en" } });
-  if (!r.ok) throw new Error("Address search is busy. Try again in a moment.");
-  let res = await r.json();
-  if (!res.length) { // retry without the Atlanta box
-    const r2 = await fetch(u.replace("&bounded=1", ""), { headers: { "Accept-Language": "en" } }); res = r2.ok ? await r2.json() : [];
-  }
-  return res.map(x => ({ lat: +x.lat, lon: +x.lon, label: shortLabel(x.display_name) }));
+// ---------- geocoding: Photon (place names, typo-tolerant, biased to you) + Nominatim (addresses) ----------
+const ATL = { lat: 33.76, lon: -84.39 }, METRO_KM = 60;
+const kmFrom = (a, b) => hav(a.lat, a.lon, b.lat, b.lon) / 1000;
+async function photon(text, near) {
+  const u = "https://photon.komoot.io/api/?limit=8&lang=en&bbox=-84.75,33.45,-83.95,34.15&lat=" + near.lat.toFixed(4) + "&lon=" + near.lon.toFixed(4) + "&q=" + encodeURIComponent(text);
+  const r = await fetch(u); if (!r.ok) return [];
+  const j = await r.json();
+  return (j.features || []).map(f => {
+    const p = f.properties || {}, [lon, lat] = f.geometry.coordinates;
+    const street = [p.housenumber, p.street].filter(Boolean).join(" ");
+    const label = [p.name, street && street !== p.name ? street : null, p.city || p.district || p.county].filter(Boolean).join(", ");
+    return { lat, lon, label: label || text };
+  });
 }
-const shortLabel = d => d.split(",").slice(0, 3).join(",").trim();
+async function nominatim(text) {
+  const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=us&viewbox=" + ATL_VIEWBOX + "&bounded=1&q=" + encodeURIComponent(text);
+  const r = await fetch(u, { headers: { "Accept-Language": "en" } }); if (!r.ok) return [];
+  return (await r.json()).map(x => ({ lat: +x.lat, lon: +x.lon, label: x.display_name.split(",").slice(0, 3).join(",").trim() }));
+}
+// Returns matches in metro Atlanta only, nearest to `near` first.
+async function geocode(text, near) {
+  const bias = near && kmFrom(near, ATL) <= METRO_KM ? near : ATL;
+  const [a, b] = await Promise.all([photon(text, bias).catch(() => []), nominatim(text).catch(() => [])]);
+  const all = [...a, ...b].filter(m => isFinite(m.lat) && kmFrom(m, ATL) <= METRO_KM);
+  const out = [];
+  for (const m of all) if (!out.some(o => kmFrom(o, m) < 0.15)) out.push(m);
+  // keep the search engines' best match first unless something with the same name is much closer to you
+  return out.map((m, i) => ({ ...m, rank: i + kmFrom(m, bias) / 3 })).sort((x, y) => x.rank - y.rank).slice(0, 5);
+}
 
 function getGPS() {
   return new Promise((ok, no) => {
@@ -96,9 +113,10 @@ async function plan(override) {
     let O, D, dAlts = [];
     if (override && override.O) O = override.O;
     else if ($("fromMode").value === "gps") { setStatus("Getting your location…", false, true); O = await getGPS(); }
-    else { const t = $("fromAddr").value.trim(); if (!t) throw new Error("Enter a starting address."); setStatus("Finding your start…", false, true); const m = await geocode(t); if (!m.length) throw new Error("Couldn't find “" + t + "”. Try adding a street number or city."); O = m[0]; }
+    else { const t = $("fromAddr").value.trim(); if (!t) throw new Error("Enter a starting address."); setStatus("Finding your start…", false, true); const m = await geocode(t); if (!m.length) throw new Error("Couldn't find “" + t + "” in metro Atlanta. Try a street address or a fuller name."); O = m[0]; }
+    if (kmFrom(O, ATL) > METRO_KM) throw new Error("Your location is about " + Math.round(kmFrom(O, ATL) * 0.621) + " miles from Atlanta, outside the area this planner covers. Choose “An address…” under From to plan an Atlanta trip.");
     if (override && override.D) { D = override.D; dAlts = override.dAlts || []; }
-    else { setStatus("Finding the destination…", false, true); const m = await geocode(destText); if (!m.length) throw new Error("Couldn't find “" + destText + "”. Try adding a street number or city."); D = m[0]; dAlts = m.slice(1); }
+    else { setStatus("Finding the destination…", false, true); const m = await geocode(destText, O); if (!m.length) throw new Error("Couldn't find “" + destText + "” in metro Atlanta. Try a street address, or add the neighborhood or city."); D = m[0]; dAlts = m.slice(1); }
     lastPick = { O, D, dAlts };
     showResolved(O, D, dAlts);
 
@@ -114,7 +132,12 @@ async function plan(override) {
     ];
     const walkOnly = walkMinutes(hav(O.lat, O.lon, D.lat, D.lon));
     if (walkOnly <= 45) runs.push({ legs: [{ type: "walk", mins: walkOnly, start: true, end: true }], arrive: t0 + walkOnly, depart: t0, rides: 0, tag: "walk" });
-    if (!runs.length) throw new Error("No trip found at this time. Try another time, or check that both places are in metro Atlanta.");
+    if (!runs.length) {
+      const far = (pt) => { const n = net.nearStops(pt.lat, pt.lon, 1600); return !n.length; };
+      if (far(O)) throw new Error("There's no bus, train or shuttle stop within a mile of your starting point, so no transit trip is possible from there.");
+      if (far(D)) throw new Error("There's no bus, train or shuttle stop within a mile of " + D.label + ", so no transit trip reaches it.");
+      throw new Error("No trip found at this time. Service may have ended for the night; try a later departure time.");
+    }
     render(runs, { day, delays, railRT, departMs, t0, O, D, live: !!busRT || !!railRT });
     const rec = store.get("rf.recent", []).filter(x => x !== destText); if (destText) rec.unshift(destText); store.set("rf.recent", rec.slice(0, 8)); fillRecent();
     setStatus("Updated " + fmtMs(Date.now()) + (busRT || railRT ? " with live MARTA data." : config.rtUrl ? ". Live MARTA data didn't load, so times are scheduled." : ". Times are scheduled."));
