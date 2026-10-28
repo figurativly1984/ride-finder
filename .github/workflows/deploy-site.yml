@@ -21,14 +21,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Build timetable from MARTA + Emory schedules
-        run: node build/build.mjs
-      - name: Show what was built
-        run: cat site/data/meta.json && ls -la site/data
+        run: |
+          set -o pipefail
+          node build/build.mjs 2>&1 | tee build.log
+      - name: Report what was built
+        if: always()
+        run: |
+          while IFS= read -r line; do echo "::notice title=Timetable build::$line"; done < build.log
+          [ -f site/data/meta.json ] && echo "::notice title=Timetable meta::$(cat site/data/meta.json)"
+          [ -d site/data ] && echo "::notice title=Timetable files::$(ls -la site/data | awk 'NR>3{printf "%s %s; ", $9, $5}')"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
