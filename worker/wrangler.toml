@@ -1,0 +1,8 @@
+name = "ride-finder-rt"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+# Restrict to your site, e.g. "https://figurativly1984.github.io". "*" allows any site.
+ALLOWED_ORIGIN = "https://figurativly1984.github.io"

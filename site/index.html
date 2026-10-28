@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Emory Ride Finder</title>
+<meta name="description" content="Fastest trips around Emory using Emory shuttles, MARTA buses and MARTA trains together.">
+<meta name="theme-color" content="#012169">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#f2f4f9; --surface:#ffffff; --ink:#0d1b3d; --muted:#56627d; --line:#d6dceb;
+  --emory:#012169; --gold:#b57d00; --marta:#d4561a; --rail:#0a68c2; --walk:#6b7690;
+  --ok:#1f7a4d; --bad:#b3261e; --chip-ink:#ffffff; --head:#012169; --head-ink:#ffffff; --head-gold:#f2a900;
+  --display:"Overpass",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0a1120; --surface:#121b2f; --ink:#e7ecf7; --muted:#9aa6c2; --line:#25314c;
+  --emory:#7fa2ff; --gold:#f2b632; --marta:#ff8a4c; --rail:#5aaeff; --walk:#97a2bc;
+  --ok:#5cc792; --bad:#ff8a80; --chip-ink:#0a1120; --head:#0c1a44; --head-gold:#f2b632; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.5;padding-bottom:env(safe-area-inset-bottom,0px)}
+a{color:inherit}
+.band{background:var(--head);color:var(--head-ink);padding:calc(18px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px));border-bottom:4px solid var(--head-gold)}
+.wrap{max-width:760px;margin:0 auto}
+main{padding:16px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px))}
+h1{font-size:1.7rem;font-weight:800;margin:0;letter-spacing:-.01em}
+.sub{margin:2px 0 0;opacity:.85;font-size:.95rem}
+.clock{font-family:var(--mono);color:var(--head-gold);font-size:.8rem;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+label{display:block;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+select,input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px 10px;min-width:0}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.field{margin-bottom:12px}
+button{font:inherit;cursor:pointer}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;padding:10px 14px;font-weight:600;text-decoration:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);white-space:nowrap}
+.btn.primary{background:var(--emory);border-color:var(--emory);color:var(--chip-ink);width:100%;padding:13px;font-size:1.05rem}
+.btn.small{padding:6px 10px;font-size:.85rem}
+.btn[disabled]{opacity:.6;cursor:progress}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.quick button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:3px 10px;font-size:.8rem}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+.row>.field{flex:1 1 160px;min-width:0}
+.status{margin:14px 0 0;color:var(--muted);font-size:.9rem;min-height:1.4em}
+.status.err{color:var(--bad)}
+.note{color:var(--muted);font-size:.85rem;margin:8px 0 0;max-width:65ch}
+.alts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.alts button{border:1px dashed var(--line);background:none;color:var(--muted);border-radius:6px;padding:2px 8px;font-size:.8rem;text-align:left}
+.section-h{font-size:.72rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:24px 0 10px}
+.plans{display:grid;gap:14px}
+.plan{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.plan.best{border:2px solid var(--gold)}
+.plan-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.kicker{font-size:.72rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.plan.best .kicker{color:var(--gold)}
+.plan h3{margin:2px 0 0;font-size:1.15rem;font-weight:800}
+.eta{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eta b{font-size:1.4rem;display:block;line-height:1.1}
+.eta span{color:var(--muted);font-size:.8rem}
+.meta{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.tag{font-size:.78rem;border-radius:6px;padding:2px 8px;background:var(--bg);border:1px solid var(--line);color:var(--muted)}
+.tag.free{color:var(--ok);border-color:var(--ok)}
+.tag.live{color:var(--rail);border-color:var(--rail)}
+.chip{display:inline-block;font-family:var(--mono);font-size:.78rem;font-weight:600;border-radius:999px;padding:1px 9px;color:var(--chip-ink);background:var(--c,var(--emory));margin-right:6px}
+ol.legs{list-style:none;margin:12px 0 0;padding:0}
+ol.legs li{position:relative;padding:0 0 14px 26px;min-width:0}
+ol.legs li::before{content:"";position:absolute;left:7px;top:6px;bottom:-6px;width:3px;background:var(--c,var(--walk));border-radius:2px}
+ol.legs li.walk::before{background:repeating-linear-gradient(var(--walk) 0 4px,transparent 4px 8px)}
+ol.legs li::after{content:"";position:absolute;left:2px;top:4px;width:13px;height:13px;border-radius:50%;background:var(--surface);border:3px solid var(--c,var(--walk))}
+ol.legs li.end::before{display:none}
+.leg-t{font-weight:600;overflow-wrap:anywhere}
+.leg-s{color:var(--muted);font-size:.86rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.leg-live{color:var(--rail);font-size:.84rem}
+.mono{font-family:var(--mono)}
+.links{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+footer{color:var(--muted);font-size:.8rem;margin-top:28px;max-width:70ch}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--emory);border-radius:50%;vertical-align:-2px;margin-right:6px}
+@media (prefers-reduced-motion:no-preference){.spin{animation:sp .8s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}}
+</style>
+</head>
+<body>
+<header class="band"><div class="wrap">
+  <div class="clock"><span id="clock">Atlanta</span><span id="dataAge"></span></div>
+  <h1>Emory Ride Finder</h1>
+  <p class="sub">Any address. Emory shuttles, MARTA buses and trains, combined.</p>
+</div></header>
+
+<main><div class="wrap">
+  <form class="panel" id="f" autocomplete="off">
+    <div class="field">
+      <label for="fromMode">From</label>
+      <select id="fromMode"><option value="gps">My current location</option><option value="addr">An address…</option></select>
+      <input id="fromAddr" placeholder="Starting address or place" hidden style="margin-top:8px">
+    </div>
+    <div class="field">
+      <label for="to">To</label>
+      <input id="to" list="recent" placeholder="Any address or place, e.g. Ponce City Market" required>
+      <datalist id="recent"></datalist>
+      <div class="quick" id="quick"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label for="when">Leave</label><select id="when"><option value="now">Now</option><option value="at">At a time…</option></select></div>
+      <div class="field" id="atWrap" hidden><label for="at">Date &amp; time</label><input id="at" type="datetime-local"></div>
+    </div>
+    <button class="btn primary" id="go" type="submit">Find the best way</button>
+    <p class="status" id="status" role="status"></p>
+    <div id="resolved" hidden></div>
+  </form>
+
+  <div class="section-h" id="plansH" hidden>Best options</div>
+  <div class="plans" id="plans"></div>
+
+  <div class="section-h">Live tracking</div>
+  <div class="links">
+    <a class="btn small" href="https://emory.tripshot.com/" target="_blank" rel="noopener">Emory TripShot</a>
+    <a class="btn small" href="https://emory.passiogo.com/" target="_blank" rel="noopener">Emory Passio GO</a>
+    <a class="btn small" href="https://itsmarta.com/" target="_blank" rel="noopener">MARTA alerts</a>
+    <a class="btn small" href="https://transportation.emory.edu/shuttles" target="_blank" rel="noopener">Emory schedules &amp; SafeRide</a>
+  </div>
+
+  <footer>
+    <p>Routes are planned over MARTA's published schedule and Emory's shuttle timetables together, so every combination of shuttles, buses and trains is considered. Live bus delays and train arrivals come from MARTA's real-time feeds when available. <span id="emorySrc"></span> Shuttles don't run on university holidays.</p>
+    <p>An independent project, not affiliated with MARTA or Emory University. Address search by <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>, map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.</p>
+  </footer>
+</div></main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+{
+  "_about": "Emory shuttle network used when Emory's own GTFS feed isn't available. Built from Emory Transportation's posted fall 2026 timetables (transportation.emory.edu/shuttles). Stop coordinates are approximate. 'pattern' lists [stop, minutes after the trip starts]. Trips start every 'headway' minutes between 'first' and 'last', or at the listed 'starts'. Days: 'wk' = Mon-Fri, 'we' = Sat-Sun.",
+  "stops": {
+    "WC":   { "name": "Woodruff Circle Transit Hub (EUH)", "lat": 33.7926, "lon": -84.3209 },
+    "LAW":  { "name": "Clifton Rd @ Emory School of Law", "lat": 33.7899, "lon": -84.3226 },
+    "LIB":  { "name": "Fishburne Dr @ Woodruff Library", "lat": 33.7907, "lon": -84.3240 },
+    "PEAV": { "name": "Peavine Deck / Eagle Row", "lat": 33.7948, "lon": -84.3257 },
+    "VIL":  { "name": "N Decatur Rd @ Emory Village", "lat": 33.7881, "lon": -84.3248 },
+    "STAR": { "name": "Starvine Deck (Clairmont Campus)", "lat": 33.7985, "lon": -84.3128 },
+    "MICH": { "name": "Michael St Deck", "lat": 33.7972, "lon": -84.3232 },
+    "CDC":  { "name": "Clifton Rd @ Emory Point / CDC", "lat": 33.8006, "lon": -84.3246 },
+    "WW":   { "name": "Wesley Woods", "lat": 33.8072, "lon": -84.3268 },
+    "EUHM": { "name": "Emory University Hospital Midtown", "lat": 33.7685, "lon": -84.3862 },
+    "CIV":  { "name": "Civic Center MARTA Station (shuttle stop)", "lat": 33.7666, "lon": -84.3873 },
+    "EDH":  { "name": "Emory Decatur Hospital (Park & Ride)", "lat": 33.7915, "lon": -84.2814 },
+    "DEC":  { "name": "Decatur MARTA Station (Swanton Way)", "lat": 33.7747, "lon": -84.2955 },
+    "GRADY":{ "name": "Grady Hospital", "lat": 33.7516, "lon": -84.3818 },
+    "TOCO": { "name": "Toco Hill (Kroger)", "lat": 33.8125, "lon": -84.3135 }
+  },
+  "routes": [
+    { "id": "C", "name": "C Route", "trips": [
+      { "days": "wk", "first": "05:00", "last": "23:40", "headway": 20, "pattern": [["STAR",0],["WC",8]] },
+      { "days": "wk", "first": "05:10", "last": "23:50", "headway": 20, "pattern": [["WC",0],["STAR",8]] },
+      { "days": "we", "first": "08:30", "last": "23:30", "headway": 20, "pattern": [["STAR",0],["WC",8]] },
+      { "days": "we", "first": "08:40", "last": "23:40", "headway": 20, "pattern": [["WC",0],["STAR",8]] }
+    ]},
+    { "id": "E", "name": "E Route", "trips": [
+      { "days": "wk", "first": "05:00", "last": "20:15", "headway": 14, "pattern": [["STAR",0],["LAW",10]] },
+      { "days": "wk", "first": "05:07", "last": "20:22", "headway": 14, "pattern": [["LAW",0],["STAR",10]] }
+    ]},
+    { "id": "Loop", "name": "Loop", "trips": [
+      { "days": "wk", "first": "07:00", "last": "23:30", "headway": 15, "pattern": [["STAR",0],["LAW",7],["LIB",11],["PEAV",16],["WC",21],["LAW",24],["STAR",32]] }
+    ]},
+    { "id": "D", "name": "D Route", "trips": [
+      { "days": "wk", "first": "05:00", "last": "15:15", "headway": 15, "pattern": [["WC",0],["LIB",4],["PEAV",9],["WC",15]] }
+    ]},
+    { "id": "A", "name": "A Route", "trips": [
+      { "days": "wk", "first": "07:00", "last": "19:30", "headway": 32, "pattern": [["WC",0],["CDC",6],["WW",11],["CDC",16],["WC",22]] }
+    ]},
+    { "id": "M", "name": "M Route", "trips": [
+      { "days": "wk", "first": "05:00", "last": "20:45", "headway": 15, "pattern": [["MICH",0],["WC",6],["LAW",10],["MICH",18]] }
+    ]},
+    { "id": "CCTMA", "name": "CCTMA shuttle", "trips": [
+      { "days": "wk", "first": "05:30", "last": "19:50", "headway": 47, "pattern": [["DEC",0],["VIL",14],["LAW",17],["WC",22],["VIL",30],["DEC",45]] }
+    ]},
+    { "id": "EDH", "name": "Emory Decatur Hospital shuttle", "trips": [
+      { "days": "wk", "first": "05:45", "last": "20:15", "headway": 20, "pattern": [["EDH",0],["VIL",12],["LAW",15],["WC",19],["VIL",26],["EDH",38]] }
+    ]},
+    { "id": "EUHM", "name": "Emory Midtown Hospital shuttle", "trips": [
+      { "days": "wk", "starts": ["06:10","07:10","08:10","09:10","10:10","11:10","12:10","13:10","14:10","15:10","16:10","17:10","18:10","19:10"], "pattern": [["WC",0],["EUHM",25],["CIV",28],["WC",58]] }
+    ]},
+    { "id": "Grady", "name": "Grady shuttle", "trips": [
+      { "days": "wk", "starts": ["06:40","07:40","08:40","09:40","10:40","11:40","12:40","13:40","14:40","15:40","16:40","17:40"], "pattern": [["WC",0],["GRADY",30]] },
+      { "days": "wk", "starts": ["06:10","07:10","08:10","09:10","10:10","11:10","12:10","13:10","14:10","15:10","16:10","17:10","18:10"], "pattern": [["GRADY",0],["WC",30]] }
+    ]},
+    { "id": "Toco", "name": "Toco Hill shuttle", "trips": [
+      { "days": "we", "first": "11:00", "last": "18:30", "headway": 30, "pattern": [["STAR",0],["TOCO",10],["STAR",20]] }
+    ]}
+  ]
+}

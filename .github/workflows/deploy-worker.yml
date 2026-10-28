@@ -1,0 +1,46 @@
+name: Deploy live-data Worker
+
+on:
+  push:
+    branches: [main]
+    paths: ["worker/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Cloudflare
+        id: wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: worker
+          secrets: |
+            MARTA_API_KEY
+        env:
+          MARTA_API_KEY: ${{ secrets.MARTA_API_KEY }}
+      - name: Point the website at the Worker
+        env:
+          URL: ${{ steps.wrangler.outputs.deployment-url }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$URL" ]; then echo "No Worker URL reported; leaving site/config.json unchanged."; exit 0; fi
+          echo "{ \"rtUrl\": \"$URL\" }" > site/config.json
+          if git diff --quiet site/config.json; then echo "config.json already up to date"; else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "Point site at live-data Worker ($URL)"
+            git push
+          fi
+          gh workflow run deploy-site.yml --ref main
+      - name: Check the Worker
+        env:
+          URL: ${{ steps.wrangler.outputs.deployment-url }}
+        run: |
+          [ -n "$URL" ] && sleep 5 && curl -sS "$URL/health" || true
