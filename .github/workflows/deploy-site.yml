@@ -35,6 +35,10 @@ jobs:
           while IFS= read -r line; do echo "::notice title=Timetable build::$line"; done < build.log
           [ -f site/data/meta.json ] && echo "::notice title=Timetable meta::$(cat site/data/meta.json)"
           [ -d site/data ] && echo "::notice title=Timetable files::$(ls -la site/data | awk 'NR>3{printf "%s %s; ", $9, $5}')"
+      - name: Plan sample trips on the new timetable
+        run: |
+          node test/sample-trips.mjs site/data | tee trips.log
+          while IFS= read -r line; do echo "::notice title=Sample trip::$line"; done < trips.log
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
