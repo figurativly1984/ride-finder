@@ -175,7 +175,35 @@ const feeds = [marta, emory], agencies = [
   { key: "marta", name: "MARTA", prefix: "" },
   { key: "emory", name: "Emory shuttle", prefix: "", source: emory.source },
 ];
+// Xpress posts its schedule at dated URLs, so also look for the newest link on its publishing pages.
+async function findXpressZips() {
+  const pages = ["https://gamobility.info/", "https://gamobility.info/gtfs/", "https://www.xpressga.com/developers/", "https://xpressga.com/developer-resources/"];
+  const found = new Set();
+  for (const pg of pages) {
+    try {
+      const r = await fetch(pg, { headers: { "User-Agent": "ride-finder-build (github.com/figurativly1984/ride-finder)" }, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) { console.log(`Xpress search: ${pg} -> ${r.status}`); continue; }
+      const html = await r.text();
+      for (const m of html.matchAll(/https?:[^"'\s<>]+?\.zip/gi)) if (/transit|gtfs/i.test(m[0])) found.add(m[0].replace(/^http:/, "https:"));
+      console.log(`Xpress search: ${pg} -> ${found.size} zip link(s)`);
+    } catch (e) { console.log(`Xpress search: ${pg} -> ${e.message}`); }
+  }
+  // newest first, judging by /uploads/YYYY/MM/ in the path
+  return [...found].sort((a, b) => (b.match(/\/(\d{4})\/(\d{2})\//) || [0, 0, 0]).slice(1).join("").localeCompare((a.match(/\/(\d{4})\/(\d{2})\//) || [0, 0, 0]).slice(1).join("")));
+}
 if (args.extra !== "none") for (const x of EXTRA) {
+  const candidates = [x.url];
+  if (x.key === "xpress") for (const u of await findXpressZips()) if (!candidates.includes(u)) candidates.push(u);
+  for (const url of candidates) try {
+    const f = await readGTFS(await fetchZip(url, x.name), x.name + " (" + url + ")");
+    if (!f.trips.length) continue;
+    f.trips.forEach(t => (t.id = x.prefix + t.id));
+    feeds.push(f); agencies.push({ key: x.key, name: x.name, prefix: x.prefix, url });
+    break;
+  } catch (e) { console.log(`${x.name}: ${url} unavailable (${e.message}).`); }
+  if (!agencies.some(a => a.key === x.key)) console.log(`${x.name}: no current schedule found; skipped.`);
+}
+if (false) for (const x of EXTRA) {
   try {
     const f = await readGTFS(await fetchZip(x.url, x.name), x.name);
     if (!f.trips.length) { console.log(`${x.name}: no trips in the next ${WINDOW_DAYS} days; skipped.`); continue; }
