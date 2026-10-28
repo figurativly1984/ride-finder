@@ -5,7 +5,7 @@
 set -u
 mkdir -p probe && cd probe
 UA="ride-finder-probe (github.com/figurativly1984/ride-finder)"
-get() { local out="$1"; shift; curl -sS -L -m 30 -A "$UA" -o "$out" -w "%{http_code} %{size_download} $out\n" "$@" >> index.txt 2>>errors.txt || echo "FAIL $out" >> index.txt; }
+get() { local out="$1"; shift; curl -sS -L -m 30 -A "$UA" -o "$out" -w "%{http_code} %{size_download} $out %{url_effective}\n" "$@" >> index.txt 2>>errors.txt || echo "FAIL $out" >> index.txt; }
 
 # Passio GO (Emory's real-time tracker)
 get passio-systems.json "https://passiogo.com/mapGetData.php?getSystems=2&sortMode=1&credentials=1"
@@ -42,8 +42,21 @@ n=0; while read -r js; do
 done < tripshot-js.txt
 grep -ohE '/v[0-9]/p/[A-Za-z0-9_/.{}-]+' tripshot-bundle-*.js 2>/dev/null | sort -u | head -200 > tripshot-api-paths.txt
 
+# TripShot: resolve scripts against the page's final address
+TS_BASE=$(grep " tripshot.html " index.txt | awk '{print $4}' | sed -E 's#[^/]*$##')
+echo "tripshot base: $TS_BASE" >> index.txt
+n=0; while read -r js; do
+  n=$((n+1)); case "$js" in http*) u="$js";; /*) u="https://emory.tripshot.com$js";; *) u="$TS_BASE$js";; esac
+  get "tripshot-b-$n.js" "$u"
+done < tripshot-js.txt
+# GWT loads a second, hashed bundle named inside tms.nocache.js
+for h in $(grep -ohE "[0-9A-F]{32}" tripshot-b-*.js 2>/dev/null | sort -u | head -3); do get "tripshot-perm-$h.js" "${TS_BASE}tms/$h.cache.js"; get "tripshot-perm2-$h.js" "${TS_BASE}$h.cache.js"; done
+grep -ohE '"/?(v[0-9]+|api)/[A-Za-z0-9_/.{}-]+' tripshot-b-*.js tripshot-perm*.js 2>/dev/null | sort -u | head -300 > tripshot-api-paths.txt
+
 # Emory route pages (posted timetables and stop lists)
 get emory-shuttles.html "https://transportation.emory.edu/shuttles"
 { grep -oE 'href="(https://transportation\.emory\.edu)?/shuttles/[a-z0-9-]+' emory-shuttles.html | sed -E 's#.*/shuttles/##'; printf '%s\n' a c d e m loop cctma edh euhm grady toco-hill bx dx; } | sort -u > slugs.txt
 while read -r s; do get "emory-route-$s.html" "https://transportation.emory.edu/shuttles/$s"; done < slugs.txt
+for js in $(grep -ohE '(https:)?//transportation\.emory\.edu/js/[^"]+' emory-route-c.html | sort -u); do get "emory-site-$(basename "${js%%\?*}")" "https:${js#https:}"; done
+grep -ohE "[\"'][^\"' ]*(ajax|api|stops|timeframe|schedule|route)[^\"' ]*[\"']" emory-site-*.js 2>/dev/null | sort -u | head -200 > emory-js-endpoints.txt
 ls -la > listing.txt
