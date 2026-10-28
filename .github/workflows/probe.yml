@@ -1,0 +1,23 @@
+name: Probe shuttle data sources
+
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch public shuttle data
+        run: bash tools/probe.sh
+      - name: Save results under probe/ on the probe-data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b probe-data
+          git add probe
+          git commit -qm "Shuttle data probe results"
+          git push -q -f origin probe-data
+          cat probe/index.txt

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Fetches the public shuttle data that Emory's tracking apps (Passio GO, TripShot) and
+# Emory's route pages publish, so the timetable build can use real stops and times.
+# Output goes to probe/ for inspection.
+set -u
+mkdir -p probe && cd probe
+UA="ride-finder-probe (github.com/figurativly1984/ride-finder)"
+get() { local out="$1"; shift; curl -sS -L -m 30 -A "$UA" -o "$out" -w "%{http_code} %{size_download} $out\n" "$@" >> index.txt 2>>errors.txt || echo "FAIL $out" >> index.txt; }
+
+# Passio GO (Emory's real-time tracker)
+get passio-systems.json "https://passiogo.com/mapGetData.php?getSystems=2&sortMode=1&credentials=1"
+python3 - > emory-systems.txt <<'PY'
+import json
+try:
+    d = json.load(open("passio-systems.json"))
+    for s in d.get("all") or d.get("systems") or []:
+        if "emory" in json.dumps(s).lower():
+            print(s.get("id"), s.get("username") or "-")
+except Exception as e:
+    print("ERR", e)
+PY
+echo "emory systems: $(tr '\n' ' ' < emory-systems.txt)" >> index.txt
+while read -r ID USERNAME; do
+  case "$ID" in ""|ERR) continue;; esac
+  get "passio-$ID-routes.json" -X POST "https://passiogo.com/mapGetData.php?getRoutes=1" --data-urlencode "json={\"systemSelected0\":\"$ID\",\"amount\":1}"
+  get "passio-$ID-stops.json"  -X POST "https://passiogo.com/mapGetData.php?getStops=2"  --data-urlencode "json={\"s0\":\"$ID\",\"sA\":1}"
+  get "passio-$ID-buses.json"  -X POST "https://passiogo.com/mapGetData.php?getBuses=2"  --data-urlencode "json={\"s0\":\"$ID\",\"sA\":1}"
+  for U in "$USERNAME" emory; do
+    [ "$U" = "-" ] && continue
+    get "passio3-$U-gtfs.zip"         "https://passio3.com/$U/passioTransit/gtfs/google_transit.zip"
+    get "passio3-$U-tripupdates.pb"   "https://passio3.com/$U/passioTransit/gtfs/realtime/tripUpdates"
+    get "passio3-$U-vehicles.pb"      "https://passio3.com/$U/passioTransit/gtfs/realtime/vehiclePositions"
+  done
+done < emory-systems.txt
+
+# TripShot (Emory's other tracker) - page and its script bundles, to find its data endpoints
+get tripshot.html "https://emory.tripshot.com/"
+grep -oE '(src|href)="[^"]+\.js[^"]*"' tripshot.html | sed -E 's/^(src|href)="//; s/"$//' | head -5 > tripshot-js.txt
+n=0; while read -r js; do
+  n=$((n+1)); case "$js" in http*) u="$js";; /*) u="https://emory.tripshot.com$js";; *) u="https://emory.tripshot.com/$js";; esac
+  get "tripshot-bundle-$n.js" "$u"
+done < tripshot-js.txt
+grep -ohE '/v[0-9]/p/[A-Za-z0-9_/.{}-]+' tripshot-bundle-*.js 2>/dev/null | sort -u | head -200 > tripshot-api-paths.txt
+
+# Emory route pages (posted timetables and stop lists)
+get emory-shuttles.html "https://transportation.emory.edu/shuttles"
+{ grep -oE 'href="(https://transportation\.emory\.edu)?/shuttles/[a-z0-9-]+' emory-shuttles.html | sed -E 's#.*/shuttles/##'; printf '%s\n' a c d e m loop cctma edh euhm grady toco-hill bx dx; } | sort -u > slugs.txt
+while read -r s; do get "emory-route-$s.html" "https://transportation.emory.edu/shuttles/$s"; done < slugs.txt
+ls -la > listing.txt
