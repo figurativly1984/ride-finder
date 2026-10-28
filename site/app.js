@@ -30,7 +30,8 @@ const ready = (async () => {
   const [stops, routes, transfers, services, cfg] = await Promise.all([fetchJson("stops.json"), fetchJson("routes.json"), fetchJson("transfers.json"), fetchJson("services.json"), fetch("config.json", { cache: "no-store" }).then(r => (r.ok ? r.json() : {})).catch(() => ({}))]);
   net = new Network({ stops, routes, transfers, services }); meta = m; config = cfg || {};
   $("dataAge").textContent = "Timetable " + new Date(m.built).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  $("emorySrc").textContent = m.emorySource === "gtfs" ? "Emory shuttle times come from Emory's published shuttle schedule feed." : "Emory shuttle times come from Emory's posted timetables (check TripShot for live positions).";
+  const stale = (m.agencies || []).filter(a => a.staleSince).map(a => a.name + " times come from a schedule published for service through " + a.staleSince.slice(4, 6) + "/" + a.staleSince.slice(6, 8) + "/" + a.staleSince.slice(0, 4) + " and may be out of date; check the agency's site.");
+  $("emorySrc").textContent = (stale.length ? stale.join(" ") + " " : "") + (m.emorySource === "gtfs" ? "Emory shuttle times come from Emory's published shuttle schedule feed." : "Emory shuttle times come from Emory's posted timetables (check TripShot for live positions).");
 })();
 
 // ---------- live data from the Cloudflare Worker ----------
@@ -205,6 +206,8 @@ function legHTML(l, k, j, ctx, toMs) {
   let live = "";
   if (agency !== 1 && ctx.delays.has(l.trip.id)) live = `<div class="leg-live">Live: ${d === 0 ? "on time" : d > 0 ? d + " min late" : -d + " min early"}</div>`;
   if (rail) { const hits = railLive(ctx.railRT, S[l.from][1], r[1]); if (hits) live = `<div class="leg-live">Live at ${esc(S[l.from][1])}: ${hits.map(h => esc(h.dest ? h.dest.replace(/ STATION$/i, "") : "train") + " " + (h.waitSec != null ? (h.waitSec < 60 ? "arriving" : Math.round(h.waitSec / 60) + " min") : esc(h.wait || ""))).join(" · ")}</div>`; }
+  const ag = meta.agencies && meta.agencies[agency];
+  if (ag && ag.staleSince && !live) live = `<div class="leg-live" style="color:var(--gold)">Schedule may be outdated. Confirm on ${esc(ag.name)}'s site.</div>`;
   const links = agency === 1 ? `<div class="links"><a class="btn small" target="_blank" rel="noopener" href="https://emory.tripshot.com/">Track on TripShot</a></div>` : "";
   const stopsN = l.toPos - l.fromPos;
   return `<li style="--c:${color}"><div class="leg-t"><span class="chip" style="--c:${color};color:${text}">${esc(r[1])}</span>${name && name !== r[1] ? esc(name) : agency === 1 ? "Emory shuttle" : ""}${head}</div>

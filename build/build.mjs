@@ -63,15 +63,16 @@ async function fetchZip(src, label) {
 
 // ---------- GTFS feed → common model ----------
 // model: { stops: Map(id -> {name,lat,lon}), routes: Map(id -> {...}), services: Map(id -> Set(dates)), trips: [{id, route, service, stops:[ids], times:[min]}] }
-async function readGTFS(dir, label) {
+async function readGTFS(dir, label, opt = {}) {
   const stops = new Map(), routes = new Map(), services = new Map(), tripMeta = new Map(), tripStops = new Map();
   await eachRow(join(dir, "stops.txt"), r => { if (r.location_type && r.location_type !== "0") return; stops.set(r.stop_id, { name: r.stop_name, lat: +r.stop_lat, lon: +r.stop_lon }); });
   await eachRow(join(dir, "routes.txt"), r => routes.set(r.route_id, { short: r.route_short_name, long: r.route_long_name, type: +r.route_type, color: r.route_color || "", text: r.route_text_color || "" }));
   const inWindow = new Set(windowDates);
   await eachRow(join(dir, "calendar.txt"), r => {
     const set = new Set();
-    for (const d of windowDates) { if (d < r.start_date || d > r.end_date) continue; if (r[DOW[parseYmd(d).getUTCDay()]] === "1") set.add(d); }
+    for (const d of windowDates) { if (d < r.start_date || (!opt.ignoreEnd && d > r.end_date)) continue; if (r[DOW[parseYmd(d).getUTCDay()]] === "1") set.add(d); }
     services.set(r.service_id, set);
+    if (!opt.lastEnd || r.end_date > opt.lastEnd) opt.lastEnd = r.end_date;
   });
   await eachRow(join(dir, "calendar_dates.txt"), r => {
     if (!inWindow.has(r.date)) { if (!services.has(r.service_id)) services.set(r.service_id, new Set()); return; }
@@ -195,10 +196,17 @@ if (args.extra !== "none") for (const x of EXTRA) {
   const candidates = [x.url];
   if (x.key === "xpress") for (const u of await findXpressZips()) if (!candidates.includes(u)) candidates.push(u);
   for (const url of candidates) try {
-    const f = await readGTFS(await fetchZip(url, x.name), x.name + " (" + url + ")");
+    const dir = await fetchZip(url, x.name), opt = {};
+    let f = await readGTFS(dir, x.name + " (" + url + ")", opt), staleSince = null;
+    if (!f.trips.length && opt.lastEnd && x.key === "xpress") {
+      // Xpress's newest published schedule has expired. Its weekday pattern rarely changes, so keep using it, clearly flagged.
+      const o2 = { ignoreEnd: true };
+      f = await readGTFS(dir, x.name + " (expired schedule, extended)", o2); staleSince = opt.lastEnd;
+    }
     if (!f.trips.length) continue;
     f.trips.forEach(t => (t.id = x.prefix + t.id));
-    feeds.push(f); agencies.push({ key: x.key, name: x.name, prefix: x.prefix, url });
+    feeds.push(f); agencies.push({ key: x.key, name: x.name, prefix: x.prefix, url, ...(staleSince ? { staleSince } : {}) });
+    if (staleSince) console.log(`${x.name}: published schedule ended ${staleSince}; using it anyway, marked as possibly outdated.`);
     break;
   } catch (e) { console.log(`${x.name}: ${url} unavailable (${e.message}).`); }
   if (!agencies.some(a => a.key === x.key)) console.log(`${x.name}: no current schedule found; skipped.`);
