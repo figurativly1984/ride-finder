@@ -157,13 +157,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 async function emoryLive(url, ctx, cors) {
   const ids = (url.searchParams.get("routes") || "").split(",").filter(x => UUID.test(x)).slice(0, 16);
   const now = Date.now() / 1000, day = etDay(now);
-  const out = { generated: Math.floor(now), trips: {}, routes: {} };
+  const out = { generated: Math.floor(now), trips: {}, next: {}, routes: {} };
   await Promise.all(ids.map(async id => {
     try {
       const j = await cachedJSON(ctx, `${TRIPSHOT}/v2/p/shared/route/${id}/live?day=${day}&includePreviousDayRidesSpanningMidnight=true`);
       const found = extractTripShotLive(j, now, day);
-      Object.assign(out.trips, found);
-      out.routes[id] = Object.keys(found).length;
+      Object.assign(out.trips, found.trips);
+      for (const [stop, ts] of Object.entries(found.next)) (out.next[stop] ||= {})[id] = ts;
+      out.routes[id] = Object.keys(found.trips).length + "/" + Object.keys(found.next).length;
     } catch (e) { out.routes[id] = String(e.message || e); }
   }));
   return json(out, 200, cors);
@@ -196,18 +197,32 @@ function pickTime(v, day, depth = 0) {
   for (const val of Object.values(v)) { const t = pickTime(val, day, depth + 1); if (t != null) return t; }
   return null;
 }
+// Returns { trips: {"E:<tripId>": {s, t} | {x: 1 (cancelled)}}, next: {stopId: [epochSec, ...]} }
 export function extractTripShotLive(j, nowSec, day) {
   const root = j.InternalRouteLiveData || Object.values(j)[0] || {};
-  const out = {};
+  const trips = {}, next = {};
   const take = (tripId, stopId, t) => {
     if (!tripId || !stopId || t == null || t < nowSec - 60) return;
     const id = "E:" + tripId;
-    if (!out[id] || t < out[id].t) out[id] = { s: stopId, t: Math.round(t) };
+    if (!trips[id] || (trips[id].t && t < trips[id].t)) trips[id] = { s: stopId, t: Math.round(t) };
   };
   for (const sec of [...(root.exactLiveData || []), ...(root.inexactLiveData || [])]) {
-    for (const row of sec.liveTimetable || []) for (const cell of row || []) if (cell && cell.liveVisitDetails) take(cell.sharedTripId, cell.sharedStopId, pickTime(cell.liveVisitDetails, day));
-    for (const trip of sec.liveTrips || []) for (const st of trip.stops || trip.stopStatus || []) { const v = st && (Object.values(st).length === 1 ? Object.values(st)[0] : st); if (v) take(trip.sharedTripId || trip.tripId, v.stopId || v.stop || v.sharedStopId, pickTime(v, day)); }
-    for (const ride of sec.liveRides || []) { const tid = String(ride.rideId || "").split(":")[0] || ride.scheduledRideId; for (const st of ride.stopStatus || []) { const v = st && Object.values(st)[0]; if (v) take(tid, v.stopId, pickTime(v, day)); } }
+    for (const row of sec.liveTimetable || []) for (const cell of row || []) {
+      const v = cell && cell.liveVisitDetails;
+      if (v && v.state !== "Departed" && v.state !== "Skipped") take(cell.sharedTripId, cell.sharedStopId, pickTime(v, day));
+    }
+    for (const lt of sec.liveTrips || []) if (lt && lt.state && "Cancelled" in lt.state) trips["E:" + lt.sharedTripId] = { x: 1 };
+    // buses on the road right now: their upcoming stops, for "next bus in N min" at a stop
+    for (const lr of sec.liveRides || []) {
+      const ride = lr && (lr.ride || lr);
+      for (const st of (ride && ride.stopStatus) || []) {
+        const state = st && Object.keys(st)[0], v = st && st[state];
+        if (!v || state === "Departed" || state === "Skipped") continue;
+        const t = pickTime(v, day); if (t == null || t < nowSec - 60 || t > nowSec + 3600) continue;
+        (next[v.stopId] ||= []).push(Math.round(t));
+      }
+    }
   }
-  return out;
+  for (const k of Object.keys(next)) next[k] = next[k].sort((a, b) => a - b).slice(0, 4);
+  return { trips, next };
 }

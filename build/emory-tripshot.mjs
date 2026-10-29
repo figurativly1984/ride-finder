@@ -53,7 +53,9 @@ export function parseRouteDay(details, ymd, routeKey, stops) {
       if (a && b) legSec.set(a + ">" + b, (leg.steps || []).reduce((n, s) => n + (s.durationSec || 0), 0));
     }
     const loop = [...seq, seq[0]]; const offs = [0];
-    for (let i = 1; i < loop.length; i++) offs.push(offs[i - 1] + Math.max(1, Math.round(((legSec.get(loop[i - 1] + ">" + loop[i]) ?? 120) + 20) / 60)));
+    // driving time per link; where the route data has no leg (e.g. closing the loop), estimate from distance at ~20 km/h
+    const est = (x, y) => { const A = stops.get(x), B = stops.get(y); if (!A || !B) return 120; const R = 6371000, r = v => v * Math.PI / 180; const h = Math.sin(r(B.lat - A.lat) / 2) ** 2 + Math.cos(r(A.lat)) * Math.cos(r(B.lat)) * Math.sin(r(B.lon - A.lon) / 2) ** 2; return (2 * R * Math.asin(Math.sqrt(h)) * 1.4) / 5.5; };
+    for (let i = 1; i < loop.length; i++) offs.push(offs[i - 1] + Math.max(1, Math.round(((legSec.get(loop[i - 1] + ">" + loop[i]) ?? est(loop[i - 1], loop[i])) + 20) / 60)));
     const [lo, hi] = it.headwayRangeSec || [600, 600];
     const hw = Math.max(5, Math.round((lo + hi) / 2 / 60));
     for (const iv of it.timeIntervals || []) {

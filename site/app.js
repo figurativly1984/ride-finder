@@ -56,6 +56,7 @@ function busDelays(rt, day) {
   const mid = etMidnight(day.ymd);
   for (const [id, u] of Object.entries(rt.trips)) {
     const ix = day.tripIndex.get(id); if (!ix) continue;
+    if (u.x) { delays.set(id, 1e5); continue; } // cancelled: never board it
     let d = null;
     if (typeof u.d === "number") d = u.d / 60;
     else if (u.t && u.s != null) {
@@ -163,6 +164,7 @@ async function plan(override) {
     const { ymd, min: t0 } = etParts(departMs);
     const day = await net.loadDay(ymd, fetchJson);
     const [busRT, railRT, emoryRT] = await Promise.all([fetchLive("/rt/bus"), fetchLive("/rt/rail"), Math.abs(departMs - Date.now()) < 3 * 3600e3 ? fetchLive("/rt/emory?routes=" + activeEmoryRoutes(day, t0).join(",")) : null]);
+    const emoryNext = (emoryRT && emoryRT.next) || {};
     const delays = busDelays({ trips: { ...((busRT && busRT.trips) || {}), ...((emoryRT && emoryRT.trips) || {}) } }, day);
     const opts = { origin: O, dest: D, t0, delays };
     const runs = [
@@ -178,7 +180,7 @@ async function plan(override) {
       if (far(D)) throw new Error("There's no bus, train or shuttle stop within a mile of " + D.label + ", so no transit trip reaches it.");
       throw new Error("No trip found at this time. Service may have ended for the night; try a later departure time.");
     }
-    render(runs, { day, delays, railRT, departMs, t0, O, D, live: !!busRT || !!railRT });
+    render(runs, { day, delays, railRT, emoryNext, departMs, t0, O, D, live: !!busRT || !!railRT });
     const rec = store.get("rf.recent", []).filter(x => x !== destText); if (destText) rec.unshift(destText); store.set("rf.recent", rec.slice(0, 8)); fillRecent();
     setStatus("Updated " + fmtMs(Date.now()) + (busRT || railRT ? " with live MARTA data." : config.rtUrl ? ". Live MARTA data didn't load, so times are scheduled." : ". Times are scheduled."));
   } catch (e) {
@@ -242,6 +244,8 @@ function legHTML(l, k, j, ctx, toMs) {
   let live = "";
   const hw = /^E:h-(\d+)-(\d+)-/.exec(l.trip.id);
   if (hw) live = `<div class="leg-live" style="color:var(--muted)">Runs every ${hw[1] === hw[2] ? hw[1] : hw[1] + "–" + hw[2]} min, so times are estimates. Check TripShot for the next bus.</div>`;
+  const nx = agency === 1 && ctx.emoryNext[S[l.from][0]] && ctx.emoryNext[S[l.from][0]][r[6]];
+  if (nx) { const mins = nx.map(t => Math.round((t * 1000 - Date.now()) / 60000)).filter(m => m >= 0); if (mins.length) live = `<div class="leg-live">Live: next ${esc(r[1])} here ${mins.map(m => (m < 1 ? "now" : "in " + m + " min")).join(", ")}</div>`; }
   if (ctx.delays.has(l.trip.id)) live = `<div class="leg-live">Live: ${d === 0 ? "on time" : d > 0 ? d + " min late" : -d + " min early"}</div>`;
   if (rail) { const hits = railLive(ctx.railRT, S[l.from][1], r[1]); if (hits) live = `<div class="leg-live">Live at ${esc(S[l.from][1])}: ${hits.map(h => esc(h.dest ? h.dest.replace(/ STATION$/i, "") : "train") + " " + (h.waitSec != null ? (h.waitSec < 60 ? "arriving" : Math.round(h.waitSec / 60) + " min") : esc(h.wait || ""))).join(" · ")}</div>`; }
   const ag = meta.agencies && meta.agencies[agency];

@@ -13,7 +13,7 @@ Live site: https://figurativly1984.github.io/ride-finder/
 | Live data | A Cloudflare Worker fetches MARTA's live bus delays and train arrivals, and keeps the MARTA key private. | `worker/`, `.github/workflows/deploy-worker.yml` |
 | Address search | OpenStreetMap's Nominatim service, one lookup per search. | `site/app.js` |
 
-Emory shuttle times come from Emory's own GTFS feed when Passio publishes one; otherwise from Emory's posted timetables in `build/emory-shuttles.json`. Emory's live shuttle positions aren't open to other sites, so the site links to TripShot for those.
+Emory shuttles come from TripShot (emory.tripshot.com), the system behind Emory's live tracker: every route, every stop with its exact location, and every trip for the next 8 days (`build/emory-tripshot.mjs`). Routes that run on a frequency rather than a timetable (for example the C Route on weekdays) are laid out from their published frequency and marked as estimates. The Worker's `/rt/emory` endpoint passes along live shuttle times, cancellations and next-bus times. If TripShot is unreachable, the build falls back to the posted timetables in `build/emory-shuttles.json`.
 
 ## One-time setup
 
