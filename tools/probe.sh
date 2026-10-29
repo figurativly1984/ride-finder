@@ -86,3 +86,22 @@ for R in $(grep -ohE '"(regionId|id)"\s*:\s*"[^"]+"' tripshot-region.json tripsh
   get "tripshot-routes-$R.json" "$TS/p/shared/route?includePreviousDayRidesSpanningMidnight=true&startDay=$DAY&endDay=$DAY&regionId=$R"
 done
 ls -la > listing.txt
+
+# ---- TripShot per-route schedule (any day) and per-route live data ----
+RF=$(ls tripshot-routes-*.json 2>/dev/null | head -1)
+if [ -n "$RF" ]; then
+  python3 -c "import json,sys;d=json.load(open('$RF'));[print(list(r.values())[0]['routeId'], list(r.values())[0].get('shortName','').replace(' ','_')) for r in d.get('routes',[])]" > tripshot-route-ids.txt
+  TOM=$(python3 -c "import datetime as d;t=d.date.today()+d.timedelta(1)
+while t.weekday()>4: t+=d.timedelta(1)
+print(t.isoformat())")
+  SATI=$(python3 -c "import datetime as d;t=d.date.today()+d.timedelta(1)
+while t.weekday()!=5: t+=d.timedelta(1)
+print(t.isoformat())")
+  while read -r RID NAME; do
+    get "ts-sched-$NAME-weekday.json" "https://emory.tripshot.com/v3/p/shared/route/$RID?day=$TOM&breakupExactLoops=true&includePreviousDayRidesSpanningMidnight=true"
+    get "ts-sched-$NAME-saturday.json" "https://emory.tripshot.com/v3/p/shared/route/$RID?day=$SATI&breakupExactLoops=true&includePreviousDayRidesSpanningMidnight=true"
+  done < tripshot-route-ids.txt
+  read -r RID NAME < tripshot-route-ids.txt
+  get "ts-live-$NAME.json" "https://emory.tripshot.com/v2/p/shared/route/$RID/live?day=$(date +%F)&includePreviousDayRidesSpanningMidnight=true"
+fi
+ls -la > listing.txt
