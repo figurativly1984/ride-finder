@@ -105,3 +105,11 @@ print(t.isoformat())")
   get "ts-live-$NAME.json" "https://emory.tripshot.com/v2/p/shared/route/$RID/live?day=$(date +%F)&includePreviousDayRidesSpanningMidnight=true"
 fi
 ls -la > listing.txt
+
+# ---- TripShot live data for every route (run while shuttles are operating) ----
+if [ -f tripshot-route-ids.txt ]; then
+  while read -r RID NAME; do
+    get "ts-live-all-$NAME.json" "https://emory.tripshot.com/v2/p/shared/route/$RID/live?day=$(TZ=America/New_York date +%F)&includePreviousDayRidesSpanningMidnight=true"
+  done < tripshot-route-ids.txt
+fi
+ls -la > listing.txt
