@@ -20,6 +20,7 @@ export default {
     try {
       if (url.pathname === "/rt/bus") return await cached(req, ctx, cors, () => busUpdates(env));
       if (url.pathname === "/rt/rail") return await cached(req, ctx, cors, () => railArrivals(env));
+      if (url.pathname === "/rt/emory") return await emoryLive(url, ctx, cors);
       if (url.pathname === "/health") return json(await health(env), 200, cors);
       return json({ ok: true, endpoints: ["/rt/bus", "/rt/rail", "/health"] }, 200, cors);
     } catch (e) {
@@ -147,5 +148,66 @@ async function health(env) {
   const out = {};
   try { const b = await busUpdates(env); out.bus = { ok: true, trips: Object.keys(b.trips).length, feeds: b.feeds }; } catch (e) { out.bus = { ok: false, error: e.message }; }
   try { const r = await railArrivals(env); out.rail = { ok: true, arrivals: r.arrivals.length }; } catch (e) { out.rail = { ok: false, error: e.message }; }
+  return out;
+}
+
+// ---------- Emory shuttles: TripShot live data, one route at a time ----------
+const TRIPSHOT = "https://emory.tripshot.com";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+async function emoryLive(url, ctx, cors) {
+  const ids = (url.searchParams.get("routes") || "").split(",").filter(x => UUID.test(x)).slice(0, 16);
+  const now = Date.now() / 1000, day = etDay(now);
+  const out = { generated: Math.floor(now), trips: {}, routes: {} };
+  await Promise.all(ids.map(async id => {
+    try {
+      const j = await cachedJSON(ctx, `${TRIPSHOT}/v2/p/shared/route/${id}/live?day=${day}&includePreviousDayRidesSpanningMidnight=true`);
+      const found = extractTripShotLive(j, now, day);
+      Object.assign(out.trips, found);
+      out.routes[id] = Object.keys(found).length;
+    } catch (e) { out.routes[id] = String(e.message || e); }
+  }));
+  return json(out, 200, cors);
+}
+async function cachedJSON(ctx, src) {
+  const cache = caches.default, key = new Request(src);
+  const hit = await cache.match(key);
+  if (hit) return hit.json();
+  const r = await fetch(src, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6000) });
+  if (!r.ok) throw new Error("TripShot returned " + r.status);
+  const text = await r.text();
+  ctx.waitUntil(cache.put(key, new Response(text, { headers: { "Content-Type": "application/json", "Cache-Control": `public, max-age=${CACHE_SECONDS}` } })));
+  return JSON.parse(text);
+}
+function etDay(sec) { return new Date(sec * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" }); }
+function etClockToSec(hms, day) {
+  const [h, m, s] = hms.split(":").map(Number);
+  const guess = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), 12);
+  const etNoon = new Date(guess).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false });
+  const offsetH = 12 - parseInt(etNoon, 10); // hours ET is behind UTC
+  return Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), h + offsetH, m, s || 0) / 1000;
+}
+const TIME_KEYS = ["expectedArrivalTime", "expectedDepartureTime", "estimatedArrivalTime", "estimatedDepartureTime", "arrivalTime", "departureTime"];
+function pickTime(v, day, depth = 0) {
+  if (!v || typeof v !== "object" || depth > 3) return null;
+  for (const k of TIME_KEYS) {
+    const x = v[k];
+    if (typeof x === "string") { if (/^\d{4}-\d{2}-\d{2}T/.test(x)) return Date.parse(x) / 1000; if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(x)) return etClockToSec(x, day); }
+  }
+  for (const val of Object.values(v)) { const t = pickTime(val, day, depth + 1); if (t != null) return t; }
+  return null;
+}
+export function extractTripShotLive(j, nowSec, day) {
+  const root = j.InternalRouteLiveData || Object.values(j)[0] || {};
+  const out = {};
+  const take = (tripId, stopId, t) => {
+    if (!tripId || !stopId || t == null || t < nowSec - 60) return;
+    const id = "E:" + tripId;
+    if (!out[id] || t < out[id].t) out[id] = { s: stopId, t: Math.round(t) };
+  };
+  for (const sec of [...(root.exactLiveData || []), ...(root.inexactLiveData || [])]) {
+    for (const row of sec.liveTimetable || []) for (const cell of row || []) if (cell && cell.liveVisitDetails) take(cell.sharedTripId, cell.sharedStopId, pickTime(cell.liveVisitDetails, day));
+    for (const trip of sec.liveTrips || []) for (const st of trip.stops || trip.stopStatus || []) { const v = st && (Object.values(st).length === 1 ? Object.values(st)[0] : st); if (v) take(trip.sharedTripId || trip.tripId, v.stopId || v.stop || v.sharedStopId, pickTime(v, day)); }
+    for (const ride of sec.liveRides || []) { const tid = String(ride.rideId || "").split(":")[0] || ride.scheduledRideId; for (const st of ride.stopStatus || []) { const v = st && Object.values(st)[0]; if (v) take(tid, v.stopId, pickTime(v, day)); } }
+  }
   return out;
 }

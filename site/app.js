@@ -31,7 +31,7 @@ const ready = (async () => {
   net = new Network({ stops, routes, transfers, services }); meta = m; config = cfg || {};
   $("dataAge").textContent = "Timetable " + new Date(m.built).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const stale = (m.agencies || []).filter(a => a.staleSince).map(a => a.name + " times come from a schedule published for service through " + a.staleSince.slice(4, 6) + "/" + a.staleSince.slice(6, 8) + "/" + a.staleSince.slice(0, 4) + " and may be out of date; check the agency's site.");
-  $("emorySrc").textContent = (stale.length ? stale.join(" ") + " " : "") + (m.emorySource === "gtfs" ? "Emory shuttle times come from Emory's published shuttle schedule feed." : "Emory shuttle times come from Emory's posted timetables (check TripShot for live positions).");
+  $("emorySrc").textContent = (stale.length ? stale.join(" ") + " " : "") + (m.emorySource === "tripshot" ? "Emory shuttle stops and schedules come from TripShot, the system behind Emory's live tracker, with live shuttle times when available." : "Emory shuttle times come from Emory's posted timetables (check TripShot for live positions).");
 })();
 
 // ---------- live data from the Cloudflare Worker ----------
@@ -39,6 +39,16 @@ async function fetchLive(path) {
   if (!config.rtUrl) return null;
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000);
   try { const r = await fetch(config.rtUrl.replace(/\/$/, "") + path, { signal: ctl.signal }); return r.ok ? await r.json() : null; } catch { return null; } finally { clearTimeout(t); }
+}
+// TripShot route ids of Emory shuttles running within a couple of hours of the trip
+function activeEmoryRoutes(day, t0) {
+  const ids = new Set();
+  for (const p of day.patterns) {
+    if (p.agency !== 1) continue;
+    const ext = net.routes[p.r][6]; if (!ext || ids.has(ext)) continue;
+    if (p.trips.some(t => t.times[t.times.length - 1] >= t0 - 10 && t.times[0] <= t0 + 150)) ids.add(ext);
+  }
+  return [...ids].slice(0, 16);
 }
 function busDelays(rt, day) {
   const delays = new Map();
@@ -151,8 +161,9 @@ async function plan(override) {
 
     setStatus("Planning with live MARTA data…", false, true);
     const { ymd, min: t0 } = etParts(departMs);
-    const [day, busRT, railRT] = await Promise.all([net.loadDay(ymd, fetchJson), fetchLive("/rt/bus"), fetchLive("/rt/rail")]);
-    const delays = busDelays(busRT, day);
+    const day = await net.loadDay(ymd, fetchJson);
+    const [busRT, railRT, emoryRT] = await Promise.all([fetchLive("/rt/bus"), fetchLive("/rt/rail"), Math.abs(departMs - Date.now()) < 3 * 3600e3 ? fetchLive("/rt/emory?routes=" + activeEmoryRoutes(day, t0).join(",")) : null]);
+    const delays = busDelays({ trips: { ...((busRT && busRT.trips) || {}), ...((emoryRT && emoryRT.trips) || {}) } }, day);
     const opts = { origin: O, dest: D, t0, delays };
     const runs = [
       ...raptor(net, day, opts).map(j => ({ ...j, tag: "any" })),
@@ -205,7 +216,7 @@ function render(runs, ctx) {
     return `<article class="plan${i === 0 ? " best" : ""}">
       <div class="plan-top"><div><div class="kicker">${kicker}</div><h3>${title}</h3></div>
       <div class="eta"><b>${Math.max(1, Math.round(j.arrive - t0))} min</b><span>arrive ${fmtMs(toMs(j.arrive))}</span></div></div>
-      <div class="meta">${paidList.length ? paidList.map(a => `<span class="tag">${a === 0 ? "$2.50 MARTA fare" : esc(agencyName(a)) + " fare"}</span>`).join("") : '<span class="tag free">Free</span>'}<span class="tag">Leave by ${fmtMs(toMs(Math.max(t0, lb)))}</span>${j.rides > 1 ? `<span class="tag">${j.rides - 1} transfer${j.rides > 2 ? "s" : ""}</span>` : ""}${walk ? `<span class="tag">${walk} min walking</span>` : ""}${liveUsed ? '<span class="tag live">Live bus times</span>' : ""}</div>
+      <div class="meta">${paidList.length ? paidList.map(a => `<span class="tag">${a === 0 ? "$2.50 MARTA fare" : esc(agencyName(a)) + " fare"}</span>`).join("") : '<span class="tag free">Free</span>'}<span class="tag">Leave by ${fmtMs(toMs(Math.max(t0, lb)))}</span>${j.rides > 1 ? `<span class="tag">${j.rides - 1} transfer${j.rides > 2 ? "s" : ""}</span>` : ""}${walk ? `<span class="tag">${walk} min walking</span>` : ""}${liveUsed ? '<span class="tag live">Live times</span>' : ""}</div>
       <ol class="legs">${j.legs.map((l, k) => legHTML(l, k, j, ctx, toMs)).join("")}<li class="end" style="--c:var(--gold)"><div class="leg-t">Arrive at ${esc(ctx.D.label)}</div><div class="leg-s mono">${fmtMs(toMs(j.arrive))}</div></li></ol>
     </article>`;
   }).join("");
@@ -229,14 +240,16 @@ function legHTML(l, k, j, ctx, toMs) {
   const name = agency === 1 ? r[2] : (agency === 0 ? "" : agencyName(agency) + " ") + (r[2] || (rail ? "MARTA rail" : agency === 0 ? "MARTA bus" : "bus"));
   const head = l.pattern.h ? " toward " + esc(l.pattern.h) : "";
   let live = "";
-  if (agency !== 1 && ctx.delays.has(l.trip.id)) live = `<div class="leg-live">Live: ${d === 0 ? "on time" : d > 0 ? d + " min late" : -d + " min early"}</div>`;
+  const hw = /^E:h-(\d+)-(\d+)-/.exec(l.trip.id);
+  if (hw) live = `<div class="leg-live" style="color:var(--muted)">Runs every ${hw[1] === hw[2] ? hw[1] : hw[1] + "–" + hw[2]} min, so times are estimates. Check TripShot for the next bus.</div>`;
+  if (ctx.delays.has(l.trip.id)) live = `<div class="leg-live">Live: ${d === 0 ? "on time" : d > 0 ? d + " min late" : -d + " min early"}</div>`;
   if (rail) { const hits = railLive(ctx.railRT, S[l.from][1], r[1]); if (hits) live = `<div class="leg-live">Live at ${esc(S[l.from][1])}: ${hits.map(h => esc(h.dest ? h.dest.replace(/ STATION$/i, "") : "train") + " " + (h.waitSec != null ? (h.waitSec < 60 ? "arriving" : Math.round(h.waitSec / 60) + " min") : esc(h.wait || ""))).join(" · ")}</div>`; }
   const ag = meta.agencies && meta.agencies[agency];
   if (ag && ag.staleSince && !live) live = `<div class="leg-live" style="color:var(--gold)">Schedule may be outdated. Confirm on ${esc(ag.name)}'s site.</div>`;
   const links = agency === 1 ? `<div class="links"><a class="btn small" target="_blank" rel="noopener" href="https://emory.tripshot.com/">Track on TripShot</a></div>` : "";
   const stopsN = l.toPos - l.fromPos;
   return `<li style="--c:${color}"><div class="leg-t"><span class="chip" style="--c:${color};color:${text}">${esc(r[1])}</span>${name && name !== r[1] ? esc(name) : agency === 1 ? "Emory shuttle" : ""}${head}</div>
-    <div class="leg-s">Board at ${esc(S[l.from][1])} · <span class="mono">${fmtMs(toMs(dep))}</span>${agency === 1 ? " · scheduled" : ""}</div>
+    <div class="leg-s">Board at ${esc(S[l.from][1])} · <span class="mono">${fmtMs(toMs(dep))}</span>${ctx.delays.has(l.trip.id) ? " · live" : hw ? " · about" : agency === 1 ? " · scheduled" : ""}</div>
     <div class="leg-s">Get off at ${esc(S[l.to][1])} · <span class="mono">${fmtMs(toMs(arr))}</span> · ${stopsN} stop${stopsN === 1 ? "" : "s"}</div>${live}${links}</li>`;
 }
 

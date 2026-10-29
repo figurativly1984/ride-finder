@@ -9,11 +9,13 @@ import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readEmoryTripShot } from "./emory-tripshot.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith("--") ? [...a, [v.slice(2), arr[i + 1]]] : a), []));
 const MARTA_SRC = args.marta || process.env.MARTA_GTFS_URL || "https://itsmarta.com/google_transit_feed/google_transit.zip";
-const EMORY_SRC = args.emory ?? process.env.EMORY_GTFS_URL ?? "https://passio3.com/emory/passioTransit/gtfs/google_transit.zip";
+const EMORY_SRC = args.emory ?? process.env.EMORY_SOURCE ?? "tripshot";
+const EMORY_DAYS = parseInt(args.emorydays || "8", 10);
 const OUT = args.out || join(HERE, "..", "site", "data");
 const WINDOW_DAYS = parseInt(args.days || "45", 10);
 const TODAY = args.today || new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).replaceAll("-", "");
@@ -124,7 +126,7 @@ function encode(feeds) {
   feeds.forEach((f, agency) => {
     const used = new Set(f.trips.flatMap(t => t.stops));
     for (const id of used) { const s = f.stops.get(id); if (!s || !isFinite(s.lat)) continue; stopIdx.set(sKey(agency, id), stops.length); stops.push([id, s.name, +s.lat.toFixed(6), +s.lon.toFixed(6), agency]); }
-    for (const [id, r] of f.routes) { routeIdx.set(sKey(agency, id), routes.length); routes.push([agency, r.short, r.long, r.type, r.color, r.text]); }
+    for (const [id, r] of f.routes) { routeIdx.set(sKey(agency, id), routes.length); routes.push([agency, r.short, r.long, r.type, r.color, r.text, r.ext || ""]); }
     for (const [id, set] of f.services) { if (!set.size) continue; serviceIdx.set(sKey(agency, id), services.length); services.push({ a: agency, id, dates: [...set].sort() }); }
   });
   // patterns per service
@@ -160,8 +162,12 @@ function encode(feeds) {
 const marta = await readGTFS(await fetchZip(MARTA_SRC, "MARTA"), "MARTA");
 if (!marta.trips.length) throw new Error("MARTA feed has no trips in the next " + WINDOW_DAYS + " days");
 let emory = null;
-if (EMORY_SRC && EMORY_SRC !== "none") {
-  try { emory = await readGTFS(await fetchZip(EMORY_SRC, "Emory"), "Emory GTFS"); if (!emory.trips.length) { console.log("Emory GTFS has no current trips; using posted timetables."); emory = null; } else emory.source = "gtfs"; }
+if (EMORY_SRC === "tripshot") {
+  // Emory's real schedules, every stop, from the system behind Emory's live tracker
+  try { emory = await readEmoryTripShot(windowDates.slice(0, EMORY_DAYS + 1)); }
+  catch (e) { console.log("Emory TripShot schedules unavailable (" + e.message + "); using posted timetables."); }
+} else if (EMORY_SRC && EMORY_SRC !== "none") {
+  try { emory = await readGTFS(await fetchZip(EMORY_SRC, "Emory"), "Emory GTFS"); if (!emory.trips.length) emory = null; else emory.source = "gtfs"; }
   catch (e) { console.log("Emory GTFS unavailable (" + e.message + "); using posted timetables."); }
 }
 if (!emory) emory = readEmoryJSON();
