@@ -60,3 +60,29 @@ while read -r s; do get "emory-route-$s.html" "https://transportation.emory.edu/
 for js in $(grep -ohE '(https:)?//transportation\.emory\.edu/js/[^"]+' emory-route-c.html | sort -u); do get "emory-site-$(basename "${js%%\?*}")" "https:${js#https:}"; done
 grep -ohE "[\"'][^\"' ]*(ajax|api|stops|timeframe|schedule|route)[^\"' ]*[\"']" emory-site-*.js 2>/dev/null | sort -u | head -200 > emory-js-endpoints.txt
 ls -la > listing.txt
+
+# ---- Emory site's own schedule service (what its route pages call) ----
+WD=$(python3 -c "import datetime as d;t=d.date.today()+d.timedelta(1)
+while t.weekday()>4: t+=d.timedelta(1)
+print(t.strftime('%m-%d-%Y'))")
+SAT=$(python3 -c "import datetime as d;t=d.date.today()+d.timedelta(1)
+while t.weekday()!=5: t+=d.timedelta(1)
+print(t.strftime('%m-%d-%Y'))")
+get emory-ajax-getroutes.json -X POST "https://transportation.emory.edu/ajax/ajax.php" --data "action=getroutes"
+for f in emory-route-*.html; do
+  sid=$(grep -oE 'data-route-id="[^"]+"' "$f" | head -1 | sed -E 's/.*="//; s/"$//'); [ -z "$sid" ] && continue
+  slug=${f#emory-route-}; slug=${slug%.html}
+  get "emory-ajax-details-$slug-weekday.json" -X POST "https://transportation.emory.edu/ajax/ajax.php" --data "action=getroutedetails&filters%5Bsid%5D=$sid&filters%5Bdate%5D=$WD"
+  get "emory-ajax-details-$slug-saturday.json" -X POST "https://transportation.emory.edu/ajax/ajax.php" --data "action=getroutedetails&filters%5Bsid%5D=$sid&filters%5Bdate%5D=$SAT"
+done
+
+# ---- TripShot public data ----
+TS=https://emory.tripshot.com/v1
+get tripshot-region.json "$TS/region"
+get tripshot-livestatus.json "$TS/p/liveStatus"
+DAY=$(date +%F)
+for R in $(grep -ohE '"(regionId|id)"\s*:\s*"[^"]+"' tripshot-region.json tripshot-livestatus.json 2>/dev/null | sed -E 's/.*:\s*"//; s/"$//' | sort -u | head -5); do
+  get "tripshot-live-$R.json" "$TS/p/liveStatus?regionId=$R"
+  get "tripshot-routes-$R.json" "$TS/p/shared/route?includePreviousDayRidesSpanningMidnight=true&startDay=$DAY&endDay=$DAY&regionId=$R"
+done
+ls -la > listing.txt
